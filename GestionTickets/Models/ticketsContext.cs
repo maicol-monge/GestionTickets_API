@@ -10,6 +10,11 @@ namespace GestionTickets.Models
         }
 
         public DbSet<empresa> empresa { get; set; }
+        public DbSet<usuario> usuario { get; set; }
+        public DbSet<ticket> ticket { get; set; }
+        public DbSet<categoria> categoria { get; set; }
+        public DbSet<asignacion_ticket> asignacion_ticket { get; set; }
+        public DbSet<tecnico> tecnico { get; set; }
 
     }
 }
