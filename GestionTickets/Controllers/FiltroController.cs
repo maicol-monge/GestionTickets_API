@@ -158,11 +158,11 @@ namespace GestionTickets.Controllers
             if (anio.HasValue)
             {
                 query = query.Where(t => t.fecha_creacion.Year == anio.Value);
+            }
 
-                if (mes.HasValue && mes.Value != 0)
-                {
-                    query = query.Where(t => t.fecha_creacion.Month == mes.Value);
-                }
+            if (mes.HasValue && mes.Value != 0)
+            {
+                query = query.Where(t => t.fecha_creacion.Month == mes.Value);
             }
 
             // Filtrar texto de búsqueda en título o descripción (si hay)

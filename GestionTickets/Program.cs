@@ -18,7 +18,7 @@ builder.Services.AddControllers();
 //Inyeccion por dependencia del string de conexion al contexto
 builder.Services.AddDbContext<ticketsContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("equiposDbConnection")
+        builder.Configuration.GetConnectionString("ticketsDbConnection")
         )
     );
 
