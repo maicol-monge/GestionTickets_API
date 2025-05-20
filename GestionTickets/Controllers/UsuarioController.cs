@@ -14,6 +14,7 @@ namespace GestionTickets.Controllers
     [ApiController]
     public class UsuarioController : ControllerBase
     {
+        //CAMBIOSSSSSSSSSSSSSSSSSSSSSSSS
         private readonly ticketsContext _ticketsContexto;
 
         public UsuarioController(ticketsContext ticketsContexto)
