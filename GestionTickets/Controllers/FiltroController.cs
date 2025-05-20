@@ -109,5 +109,75 @@ namespace GestionTickets.Controllers
 
             return await query.ToListAsync();
         }
+
+
+
+
+        [HttpGet("mis-asignaciones")]
+        public async Task<ActionResult<IEnumerable<ticket>>> GetTicketsPorUsuario(
+     [FromQuery] int idUsuario,
+     [FromQuery] string estado = null,
+     [FromQuery] string prioridad = null,
+     [FromQuery] int? idCategoria = null,
+     [FromQuery] int? mes = null,
+     [FromQuery] int? anio = null,
+     [FromQuery] string textoBusqueda = null)
+        {
+            var query = _context.ticket.AsQueryable();
+
+            // Filtrar por usuario
+            query = query.Where(t => t.id_usuario == idUsuario);
+
+            // Filtrar estado (si viene)
+            if (!string.IsNullOrEmpty(estado) && estado != "todos")
+            {
+                if (estado == "activos")
+                {
+                    // Asumo que 'A' significa activo, 'C' cerrado
+                    query = query.Where(t => t.estado == "A");
+                }
+                else
+                {
+                    // Si hay otros estados, manejar aquí
+                }
+            }
+
+            // Filtrar prioridad
+            if (!string.IsNullOrEmpty(prioridad))
+            {
+                query = query.Where(t => t.prioridad == prioridad);
+            }
+
+            // Filtrar categoría
+            if (idCategoria.HasValue && idCategoria.Value != 0)
+            {
+                query = query.Where(t => t.id_categoria == idCategoria.Value);
+            }
+
+            // Filtrar mes y año por fecha_creacion
+            if (anio.HasValue)
+            {
+                query = query.Where(t => t.fecha_creacion.Year == anio.Value);
+
+                if (mes.HasValue && mes.Value != 0)
+                {
+                    query = query.Where(t => t.fecha_creacion.Month == mes.Value);
+                }
+            }
+
+            // Filtrar texto de búsqueda en título o descripción (si hay)
+            if (!string.IsNullOrEmpty(textoBusqueda))
+            {
+                string texto = textoBusqueda.ToLower();
+                query = query.Where(t => t.titulo.ToLower().Contains(texto) || t.descripcion.ToLower().Contains(texto));
+            }
+
+            var resultado = await query.ToListAsync();
+            return resultado;
+        }
+
+
     }
+
 }
+
