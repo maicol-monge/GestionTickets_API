@@ -69,7 +69,8 @@ namespace GestionTickets.Controllers
     [FromQuery] int? idCategoria = null,
     [FromQuery] int? mes = null,
     [FromQuery] int? anio = null,
-    [FromQuery] string? textoBusqueda = null)
+    [FromQuery] string? textoBusqueda = null,
+    [FromQuery] int? idUsuario = null)
         {
             IQueryable<ticket> query = _context.ticket;
 
@@ -105,6 +106,11 @@ namespace GestionTickets.Controllers
                 query = query.Where(t =>
                     t.titulo.Contains(textoBusqueda) || // Eliminé .ToString()
                     t.descripcion.Contains(textoBusqueda)); // Eliminé .ToString()
+            }
+
+            if (idUsuario.HasValue)
+            {
+                query = query.Where(t => t.id_usuario == idUsuario.Value);
             }
 
             return await query.ToListAsync();

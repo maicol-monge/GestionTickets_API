@@ -48,10 +48,16 @@ namespace GestionTickets.Controllers
         [HttpGet("Find/{filtro}")]
         public IActionResult FindByName(string filtro)
         {
-            var empresa = _ticketsContexto.empresa.FirstOrDefault(e => e.nombre_empresa.Contains(filtro));
-            if (empresa == null) return NotFound();
-            return Ok(empresa);
+            var empresas = _ticketsContexto.empresa
+                .Where(e => e.nombre_empresa.Contains(filtro))
+                .ToList();
+
+            if (empresas == null || empresas.Count == 0)
+                return NotFound();
+
+            return Ok(empresas);
         }
+
 
         [HttpPost("Add")]
         public IActionResult Add([FromBody] empresa empresa)
