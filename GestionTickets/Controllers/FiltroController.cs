@@ -69,7 +69,8 @@ namespace GestionTickets.Controllers
     [FromQuery] int? idCategoria = null,
     [FromQuery] int? mes = null,
     [FromQuery] int? anio = null,
-    [FromQuery] string? textoBusqueda = null)
+    [FromQuery] string? textoBusqueda = null,
+    [FromQuery] int? idUsuario = null)
         {
             IQueryable<ticket> query = _context.ticket;
 
@@ -107,7 +108,100 @@ namespace GestionTickets.Controllers
                     t.descripcion.Contains(textoBusqueda)); // Eliminé .ToString()
             }
 
+            if (idUsuario.HasValue)
+            {
+                query = query.Where(t => t.id_usuario == idUsuario.Value);
+            }
+
             return await query.ToListAsync();
         }
+
+
+
+
+        [HttpGet("mis-asignaciones")]
+        public async Task<ActionResult<IEnumerable<object>>> GetTicketsPorUsuario(
+    [FromQuery] int idUsuario,
+    [FromQuery] string estado = null,
+    [FromQuery] string prioridad = null,
+    [FromQuery] int? idCategoria = null,
+    [FromQuery] int? mes = null,
+    [FromQuery] int? anio = null,
+    [FromQuery] string textoBusqueda = null)
+        {
+            // Primero obtenemos los técnicos relacionados al usuario
+            var tecnicosIds = await _context.tecnico
+                .Where(tec => tec.id_usuario == idUsuario)
+                .Select(tec => tec.id_tecnico)
+                .ToListAsync();
+
+            // Ahora el query que une las tablas y filtra por técnicos asignados
+            var query = from u in _context.usuario
+                        join tec in _context.tecnico on u.id_usuario equals tec.id_usuario
+                        join at in _context.asignacion_ticket on tec.id_tecnico equals at.id_tecnico
+                        join t in _context.ticket on at.id_ticket equals t.id_ticket
+                        where tecnicosIds.Contains(tec.id_tecnico) // solo técnicos asignados al usuario
+                        select new
+                        {
+                            id_usuario = u.id_usuario,
+                            nombre_completo = u.nombre + " " + u.apellido,
+                            id_ticket = t.id_ticket,
+                            titulo = t.titulo,
+                            descripcion = t.descripcion,
+                            prioridad = t.prioridad,
+                            fecha_creacion = t.fecha_creacion,
+                            fecha_asignacion = at.fecha_asignacion,
+                            estado_ticket = at.estado_ticket,
+                            estado = t.estado,
+                            id_categoria = t.id_categoria
+                        };
+
+            // Aplicar filtros sobre los tickets:
+            if (!string.IsNullOrEmpty(estado) && estado != "todos")
+            {
+                if (estado == "activos")
+                {
+                    query = query.Where(x => x.estado == "A");
+                }
+                else
+                {
+                    // Puedes agregar más estados aquí
+                }
+            }
+
+            if (!string.IsNullOrEmpty(prioridad))
+            {
+                query = query.Where(x => x.prioridad == prioridad);
+            }
+
+            if (idCategoria.HasValue && idCategoria.Value != 0)
+            {
+                query = query.Where(x => x.id_categoria == idCategoria.Value);
+            }
+
+            if (anio.HasValue)
+            {
+                query = query.Where(x => x.fecha_creacion.Year == anio.Value);
+            }
+
+            if (mes.HasValue && mes.Value != 0)
+            {
+                query = query.Where(x => x.fecha_creacion.Month == mes.Value);
+            }
+
+            if (!string.IsNullOrEmpty(textoBusqueda))
+            {
+                string texto = textoBusqueda.ToLower();
+                query = query.Where(x => x.titulo.ToLower().Contains(texto) || x.descripcion.ToLower().Contains(texto));
+            }
+
+            var resultado = await query.ToListAsync();
+
+            return Ok(resultado);
+        }
+
+
     }
+
 }
+
