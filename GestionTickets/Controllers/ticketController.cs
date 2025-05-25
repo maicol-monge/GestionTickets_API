@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Linq;
 
 namespace GestionTickets.Controllers
 {
@@ -20,7 +21,7 @@ namespace GestionTickets.Controllers
         }
 
         [HttpPost("crearTicket")]
-            public async Task<IActionResult> CrearTicket([FromBody] TicketRequest request)
+        public async Task<IActionResult> CrearTicket([FromBody] TicketRequest request)
         {
             // Validaciones básicas
             if (string.IsNullOrEmpty(request.titulo) || string.IsNullOrEmpty(request.descripcion))
@@ -75,6 +76,43 @@ namespace GestionTickets.Controllers
                 Message = "Ticket creado exitosamente",
                 Ticket = nuevoTicket
             });
+        }
+
+        /// <summary>
+        /// Obtiene un ticket por su ID, incluyendo archivos adjuntos.
+        /// </summary>
+        [HttpGet("{id}")]
+        public async Task<IActionResult> ObtenerTicketPorId(int id)
+        {
+            var ticket = await _ticketsContexto.ticket
+                .Where(t => t.id_ticket == id)
+                .Select(t => new
+                {
+                    t.id_ticket,
+                    t.titulo,
+                    t.tipo_ticket,
+                    t.descripcion,
+                    t.prioridad,
+                    t.fecha_creacion,
+                    t.fecha_cierre,
+                    t.id_usuario,
+                    t.id_categoria,
+                    t.estado,
+                    archivos_adjuntos = _ticketsContexto.archivo_adjunto
+                        .Where(a => a.id_ticket == t.id_ticket)
+                        .Select(a => new
+                        {
+                            a.id_archivo,
+                            a.nombre_archivo,
+                            a.ruta_archivo
+                        }).ToList()
+                })
+                .FirstOrDefaultAsync();
+
+            if (ticket == null)
+                return NotFound(new { Message = "Ticket no encontrado" });
+
+            return Ok(ticket);
         }
 
         // Clase para recibir el cuerpo del POST
