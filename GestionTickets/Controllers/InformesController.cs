@@ -8,6 +8,7 @@ using System;
 using GestionTickets.Models;
 using iTextSharp.text;
 using iTextSharp.text.pdf;
+using static System.Net.WebRequestMethods;
 
 namespace GestionTickets.Controllers
 {
@@ -35,7 +36,12 @@ namespace GestionTickets.Controllers
                 })
                 .ToList();
 
-            return GenerarPdf("Tendencias de Problemas", new[] { "Prioridad", "Título", "Descripción" }, filas);
+            return Ok(new
+            {
+                titulo = "Tendencias de Problemas",
+                encabezados = new[] { "Prioridad", "Título", "Descripción" },
+                filas
+            });
         }
 
         [HttpGet("generar-pdf-tiempos")]
@@ -43,7 +49,7 @@ namespace GestionTickets.Controllers
         {
             var datos = await FiltrarTickets(fecha, personal, categoria);
 
-            var tiempos = datos
+            var filas = datos
                 .Where(t => t.fecha_cierre.HasValue)
                 .Select(t => new[] {
                     t.titulo,
@@ -53,7 +59,13 @@ namespace GestionTickets.Controllers
                 })
                 .ToList();
 
-            return GenerarPdf("Tiempos de Resolución", new[] { "Título", "Fecha Creación", "Fecha Cierre", "Días" }, tiempos);
+            return Ok(new
+            {
+                titulo = "Tiempos de Resolución",
+                encabezados = new[] { "Título", "Fecha Creación", "Fecha Cierre", "Días" },
+                filas
+            });
+
         }
 
         [HttpGet("generar-pdf-estadisticas")]
@@ -72,7 +84,12 @@ namespace GestionTickets.Controllers
                 new[] { "Tickets Cerrados", cerrados.ToString() }
             };
 
-            return GenerarPdf("Estadísticas Entrantes", new[] { "Descripción", "Cantidad" }, filas);
+            return Ok(new
+            {
+                titulo = "Estadísticas Entrantes",
+                encabezados = new[] { "Descripción", "Cantidad" },
+                filas
+            });
         }
 
         private async Task<List<ticketDTO>> FiltrarTickets(string? fecha, string? personal, string? categoria)
@@ -104,46 +121,46 @@ namespace GestionTickets.Controllers
             return await query.ToListAsync();
         }
 
-        private IActionResult GenerarPdf(string titulo, string[] encabezados, IEnumerable<string[]> filas)
-        {
-            using var ms = new MemoryStream();
-            var doc = new Document(PageSize.A4, 30, 30, 30, 30);
-            PdfWriter.GetInstance(doc, ms);
-            doc.Open();
+        //private IActionResult GenerarPdf(string titulo, string[] encabezados, IEnumerable<string[]> filas)
+        //{
+        //    using var ms = new MemoryStream();
+        //    var doc = new Document(PageSize.A4, 30, 30, 30, 30);
+        //    PdfWriter.GetInstance(doc, ms);
+        //    doc.Open();
 
-            var fuenteTitulo = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16);
-            var fuenteNormal = FontFactory.GetFont(FontFactory.HELVETICA, 12);
+        //    var fuenteTitulo = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16);
+        //    var fuenteNormal = FontFactory.GetFont(FontFactory.HELVETICA, 12);
 
-            doc.Add(new Paragraph(titulo, fuenteTitulo));
-            doc.Add(new Paragraph($"Fecha de generación: {DateTime.Now:dd/MM/yyyy}", fuenteNormal));
-            doc.Add(new Paragraph("\n"));
+        //    doc.Add(new Paragraph(titulo, fuenteTitulo));
+        //    doc.Add(new Paragraph($"Fecha de generación: {DateTime.Now:dd/MM/yyyy}", fuenteNormal));
+        //    doc.Add(new Paragraph("\n"));
 
-            PdfPTable table = new PdfPTable(encabezados.Length)
-            {
-                WidthPercentage = 100
-            };
+        //    PdfPTable table = new PdfPTable(encabezados.Length)
+        //    {
+        //        WidthPercentage = 100
+        //    };
 
-            foreach (var encabezado in encabezados)
-            {
-                var celda = new PdfPCell(new Phrase(encabezado, fuenteTitulo))
-                {
-                    BackgroundColor = new BaseColor(220, 220, 220),
-                    Padding = 5
-                };
-                table.AddCell(celda);
-            }
+        //    foreach (var encabezado in encabezados)
+        //    {
+        //        var celda = new PdfPCell(new Phrase(encabezado, fuenteTitulo))
+        //        {
+        //            BackgroundColor = new BaseColor(220, 220, 220),
+        //            Padding = 5
+        //        };
+        //        table.AddCell(celda);
+        //    }
 
-            foreach (var fila in filas)
-            {
-                foreach (var celdaTexto in fila)
-                {
-                    table.AddCell(new PdfPCell(new Phrase(celdaTexto, fuenteNormal)) { Padding = 5 });
-                }
-            }
+        //    foreach (var fila in filas)
+        //    {
+        //        foreach (var celdaTexto in fila)
+        //        {
+        //            table.AddCell(new PdfPCell(new Phrase(celdaTexto, fuenteNormal)) { Padding = 5 });
+        //        }
+        //    }
 
-            doc.Close();
-            return File(ms.ToArray(), "application/pdf", $"{titulo.Replace(" ", "_")}.pdf");
-        }
+        //    doc.Close();
+        //    return File(ms.ToArray(), "application/pdf", $"{titulo.Replace(" ", "_")}.pdf");
+        //}
 
         public class ticketDTO
         {
