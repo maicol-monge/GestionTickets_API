@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace GestionTickets.Models
@@ -12,9 +13,12 @@ namespace GestionTickets.Models
         public string correo { get; set; } // correo
         public string contrasena { get; set; } // contrasena
         public string telefono { get; set; } // telefono
-        public string tipo_usuario { get; set; } // tipo_usuario
-        public string rol { get; set; } // rol
+        public string? tipo_usuario { get; set; } // tipo_usuario
+        public string? rol { get; set; } // rol
         public int id_empresa { get; set; } // id_empresa
+
+        [NotMapped]
+        public int? id_categoria { get; set; }
 
     }
 }

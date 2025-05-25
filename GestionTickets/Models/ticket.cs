@@ -16,5 +16,6 @@ namespace GestionTickets.Models
         public int id_categoria { get; set; } // id_categoria
         public string estado { get; set; } // estado
 
+
     }
 }
