@@ -209,6 +209,7 @@ namespace GestionTickets.Controllers
                 .Select(t => t.fecha_creacion.Year)
                 .FirstOrDefaultAsync();
             return Ok(anioMasAntiguo);
+        }
 
         [HttpGet("obtener-usuarios")]
         public async Task<ActionResult<IEnumerable<object>>> GetUsuariosConTickets()
