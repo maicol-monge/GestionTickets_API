@@ -389,7 +389,7 @@ namespace GestionTickets.Controllers
             overflow: hidden;
         }}
         .header {{
-            background-color: #2e59a6;
+            background-color: #2c3e50;
             color: #fff;
             padding: 20px;
             text-align: center;
