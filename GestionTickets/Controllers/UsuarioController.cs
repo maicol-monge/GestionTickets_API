@@ -8,6 +8,8 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
 using System.Security.Cryptography;
+using System.Net.Mail;
+using System.Net;
 
 namespace GestionTickets.Controllers
 {
@@ -149,11 +151,15 @@ namespace GestionTickets.Controllers
             {
                 model.tipo_usuario = "externo";
                 model.rol ="cliente";
+                string contrasenaTemporal = model.contrasena;
                 model.contrasena = EncriptarContrasena(model.contrasena);
 
 
                 _ticketsContexto.usuario.Add(model);
                 await _ticketsContexto.SaveChangesAsync();
+
+                //Enviar el correo
+                await EnviarContrasena(destinatario: model.correo, asunto: "Tu contraseña temporal", contrasenaTemporal: contrasenaTemporal, model);
 
                 return Ok(new
                 {
@@ -181,10 +187,14 @@ namespace GestionTickets.Controllers
             {
                 model.tipo_usuario = "interno";
                 model.id_empresa = 1; // ID fijo para internos
+                string contrasenaTemporal = model.contrasena;
                 model.contrasena = EncriptarContrasena(model.contrasena);
 
                 _ticketsContexto.usuario.Add(model);
                 await _ticketsContexto.SaveChangesAsync();
+
+                //Enviar el correo
+                await EnviarContrasena(destinatario: model.correo, asunto: "Tu contraseña temporal", contrasenaTemporal: contrasenaTemporal, model);
 
                 // Registrar en la tabla tecnico (si se recibió id_categoria)
                 if (model.id_categoria.HasValue)
@@ -224,7 +234,7 @@ namespace GestionTickets.Controllers
                 return StatusCode(500, new
                 {
                     success = false,
-                    message = "Error al registrar usuario interno",
+                    message = "Error al registrar usuario interno: " + ex.Message,
                     error = ex.InnerException?.Message ?? ex.Message
                 });
             }
@@ -355,6 +365,101 @@ namespace GestionTickets.Controllers
             return true;
         }
 
+        private async Task EnviarContrasena(string destinatario, string asunto, string contrasenaTemporal, usuario usuario)
+        {
+            // Se crea el cuerpo del correo con HTML, mostrando la contraseña temporal en un formato destacado
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f8;
+            padding: 20px;
+            color: #333;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background-color: #2e59a6;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }}
+        .header img {{
+            max-height: 60px;
+            margin-bottom: 10px;
+        }}
+        .content {{
+            padding: 20px;
+        }}
+        .content p {{
+            margin: 0 0 10px;
+        }}
+        .temp-password {{
+            font-size: 20px;
+            font-weight: bold;
+            color: #2e59a6;
+            background-color: #e1eefa;
+            padding: 10px;
+            text-align: center;
+            border-radius: 4px;
+        }}
+        .footer {{
+            background-color: #f1f1f1;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            padding: 10px;
+        }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>Contraseña Temporal</h2>
+        </div>
+        <div class='content'>
+            <p>Hola <strong>{usuario.nombre}</strong>,</p>
+            <p>Hemos generado una contraseña temporal para tu acceso:</p>
+            <p class='temp-password'>{contrasenaTemporal}</p>
+            <p>Por favor, cambia esta contraseña en tu primer acceso para garantizar la seguridad de tu cuenta.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+
+            using (var smtp = new SmtpClient("smtp.gmail.com", 587))
+            {
+                smtp.UseDefaultCredentials = false;
+                smtp.Credentials = new NetworkCredential("n3otech2@gmail.com", "cjuc xhsk vtmw qzub"); // Usa tus credenciales
+                smtp.EnableSsl = true;
+
+                var correo = new MailMessage
+                {
+                    From = new MailAddress("n3otech2@gmail.com", "Soporte Técnico"),
+                    Subject = asunto,
+                    Body = mensaje,
+                    IsBodyHtml = true
+                };
+
+                correo.To.Add(destinatario);
+
+                await smtp.SendMailAsync(correo);
+            }
+        }
 
 
     }
