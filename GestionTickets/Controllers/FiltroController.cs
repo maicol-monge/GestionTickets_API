@@ -194,6 +194,17 @@ namespace GestionTickets.Controllers
             return Ok(resultado);
         }
 
+        //Obtener el año más antiguo segun la fecha de creación de los tickets
+        [HttpGet("obtener-anio-mas-antiguo")]
+        public async Task<ActionResult<int>> GetAnioMasAntiguo()
+        {
+            var anioMasAntiguo = await _context.ticket
+                .OrderBy(t => t.fecha_creacion)
+                .Select(t => t.fecha_creacion.Year)
+                .FirstOrDefaultAsync();
+            return Ok(anioMasAntiguo);
+        }
+
 
     }
 
