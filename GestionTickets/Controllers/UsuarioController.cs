@@ -149,6 +149,16 @@ namespace GestionTickets.Controllers
         {
             try
             {
+                bool correoExiste = await _ticketsContexto.usuario.AnyAsync(u => u.correo == model.correo);
+                if (correoExiste)
+                {
+                    return Conflict(new
+                    {
+                        success = false,
+                        message = "El correo ya está registrado."
+                    });
+                }
+
                 model.tipo_usuario = "externo";
                 model.rol ="cliente";
                 string contrasenaTemporal = model.contrasena;
@@ -185,6 +195,17 @@ namespace GestionTickets.Controllers
 
             try
             {
+                // Verificar si el correo ya está registrado
+                bool correoExiste = await _ticketsContexto.usuario.AnyAsync(u => u.correo == model.correo);
+                if (correoExiste)
+                {
+                    return Conflict(new
+                    {
+                        success = false,
+                        message = "El correo ya está registrado."
+                    });
+                }
+
                 model.tipo_usuario = "interno";
                 model.id_empresa = 1; // ID fijo para internos
                 string contrasenaTemporal = model.contrasena;
@@ -239,6 +260,7 @@ namespace GestionTickets.Controllers
                 });
             }
         }
+
 
 
         [HttpGet("empresas")]
