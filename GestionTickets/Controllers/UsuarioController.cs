@@ -71,6 +71,57 @@ namespace GestionTickets.Controllers
             return usuario;
         }
 
+        //Método para cambiar la contraseña de un usuario pidiendo la contraseña actual y la nueva, así como obviamente el id del usuario
+        [HttpPost("cambiar-contrasena")]
+        public async Task<IActionResult> CambiarContrasena([FromBody] CambioContrasenaModel model)
+        {
+            try
+            {
+                // Validar modelo de entrada
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ModelState);
+                }
+
+                // Buscar usuario por ID
+                var usuario = await _ticketsContexto.usuario.FindAsync(model.IdUsuario);
+                if (usuario == null)
+                {
+                    return NotFound(new { message = "Usuario no encontrado" });
+                }
+
+                // Verificar contraseña actual
+                if (!VerificarContrasena(model.ContrasenaActual, usuario.contrasena))
+                {
+                    return Unauthorized(new { message = "La contraseña actual es incorrecta" });
+                }
+
+                // Validar que la nueva contraseña no sea igual a la anterior
+                if (VerificarContrasena(model.NuevaContrasena, usuario.contrasena))
+                {
+                    return BadRequest(new { message = "La nueva contraseña no puede ser igual a la actual" });
+                }
+
+                // Validar fortaleza de la nueva contraseña (opcional)
+                if (model.NuevaContrasena.Length < 8)
+                {
+                    return BadRequest(new { message = "La nueva contraseña debe tener al menos 8 caracteres" });
+                }
+
+                // Hashear y guardar la nueva contraseña
+                usuario.contrasena = EncriptarContrasena(model.NuevaContrasena);
+                _ticketsContexto.usuario.Update(usuario);
+                await _ticketsContexto.SaveChangesAsync();
+
+                return Ok(new { message = "Contraseña cambiada exitosamente" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error al cambiar la contraseña", details = ex.Message });
+            }
+        }
+
+
         private string GenerateJwtToken(string email)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
@@ -306,5 +357,12 @@ namespace GestionTickets.Controllers
 
 
 
+    }
+    // Modelo para el cambio de contraseña
+    public class CambioContrasenaModel
+    {
+        public int IdUsuario { get; set; }
+        public string ContrasenaActual { get; set; }
+        public string NuevaContrasena { get; set; }
     }
 }
