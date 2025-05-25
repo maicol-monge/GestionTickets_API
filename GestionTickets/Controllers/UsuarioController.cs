@@ -7,6 +7,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
 
 namespace GestionTickets.Controllers
 {
@@ -33,7 +34,7 @@ namespace GestionTickets.Controllers
                 return Unauthorized(new { message = "Credenciales inválidas" });
             }
 
-            if(!(model.contrasena == usuario.contrasena))
+            if(!VerificarContrasena(model.contrasena, usuario.contrasena))
             {
                 return Unauthorized(new { message = "Credenciales inválidas" });
             }
@@ -97,6 +98,7 @@ namespace GestionTickets.Controllers
             {
                 model.tipo_usuario = "externo";
                 model.rol ="cliente";
+                model.contrasena = EncriptarContrasena(model.contrasena);
 
 
                 _ticketsContexto.usuario.Add(model);
@@ -128,6 +130,7 @@ namespace GestionTickets.Controllers
             {
                 model.tipo_usuario = "interno";
                 model.id_empresa = 1; // ID fijo para internos
+                model.contrasena = EncriptarContrasena(model.contrasena);
 
                 _ticketsContexto.usuario.Add(model);
                 await _ticketsContexto.SaveChangesAsync();
@@ -254,6 +257,51 @@ namespace GestionTickets.Controllers
             {
                 return StatusCode(500, new { message = "Error al filtrar usuarios", details = ex.Message });
             }
+        }
+
+        //Método para encriptar contraseñas
+        public static string EncriptarContrasena(string password)
+        {
+            // Generar una sal aleatoria
+            byte[] salt;
+            new RNGCryptoServiceProvider().GetBytes(salt = new byte[16]);
+
+            // Crear el hash con PBKDF2
+            var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 10000, HashAlgorithmName.SHA256);
+            byte[] hash = pbkdf2.GetBytes(20);
+
+            // Combinar sal y hash
+            byte[] hashBytes = new byte[36];
+            Array.Copy(salt, 0, hashBytes, 0, 16);
+            Array.Copy(hash, 0, hashBytes, 16, 20);
+
+            // Convertir a string base64
+            string savedPasswordHash = Convert.ToBase64String(hashBytes);
+            return savedPasswordHash;
+        }
+
+        public static bool VerificarContrasena(string enteredPassword, string storedHash)
+        {
+            // Extraer los bytes
+            byte[] hashBytes = Convert.FromBase64String(storedHash);
+
+            // Obtener la sal
+            byte[] salt = new byte[16];
+            Array.Copy(hashBytes, 0, salt, 0, 16);
+
+            // Calcular el hash de la contraseña ingresada
+            var pbkdf2 = new Rfc2898DeriveBytes(enteredPassword, salt, 10000, HashAlgorithmName.SHA256);
+            byte[] hash = pbkdf2.GetBytes(20);
+
+            // Comparar los hashes
+            for (int i = 0; i < 20; i++)
+            {
+                if (hashBytes[i + 16] != hash[i])
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
 
