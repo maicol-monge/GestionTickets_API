@@ -15,6 +15,7 @@ namespace GestionTickets.Models
         public int id_usuario { get; set; } // id_usuario
         public int id_categoria { get; set; } // id_categoria
         public string estado { get; set; } // estado
+        public string? resolucion { get; set; } // resolucion
 
 
     }

@@ -36,7 +36,7 @@ namespace GestionTickets.Controllers
                 return Unauthorized(new { message = "Credenciales inválidas" });
             }
 
-            if(!VerificarContrasena(model.contrasena, usuario.contrasena))
+            if (!VerificarContrasena(model.contrasena, usuario.contrasena))
             {
                 return Unauthorized(new { message = "Credenciales inválidas" });
             }
@@ -160,7 +160,7 @@ namespace GestionTickets.Controllers
                 }
 
                 model.tipo_usuario = "externo";
-                model.rol ="cliente";
+                model.rol = "cliente";
                 string contrasenaTemporal = model.contrasena;
                 model.contrasena = EncriptarContrasena(model.contrasena);
 
@@ -342,6 +342,36 @@ namespace GestionTickets.Controllers
             }
         }
 
+        [HttpGet("tecnicos")]
+        public async Task<IActionResult> ObtenerTecnicos()
+        {
+            var tecnicos = await _ticketsContexto.tecnico
+                .Join(
+                    _ticketsContexto.usuario,
+                    t => t.id_usuario,
+                    u => u.id_usuario,
+                    (t, u) => new
+                    {
+                        t.id_tecnico,
+                        t.id_usuario,
+                        t.id_categoria,
+                        usuario = new
+                        {
+                            u.nombre,
+                            u.apellido,
+                            u.correo,
+                            u.telefono,
+                            u.tipo_usuario,
+                            u.rol,
+                            u.id_empresa
+                        }
+                    }
+                )
+                .ToListAsync();
+
+            return Ok(tecnicos);
+        }
+
         //Método para encriptar contraseñas
         public static string EncriptarContrasena(string password)
         {
@@ -391,77 +421,77 @@ namespace GestionTickets.Controllers
         {
             // Se crea el cuerpo del correo con HTML, mostrando la contraseña temporal en un formato destacado
             string mensaje = $@"
-<!DOCTYPE html>
-<html lang='es'>
-<head>
-    <meta charset='UTF-8'>
-    <style>
-        body {{
-            font-family: Arial, sans-serif;
-            background-color: #f4f6f8;
-            padding: 20px;
-            color: #333;
-        }}
-        .container {{
-            max-width: 600px;
-            margin: auto;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-        }}
-        .header {{
-            background-color: #2c3e50;
-            color: #fff;
-            padding: 20px;
-            text-align: center;
-        }}
-        .header img {{
-            max-height: 60px;
-            margin-bottom: 10px;
-        }}
-        .content {{
-            padding: 20px;
-        }}
-        .content p {{
-            margin: 0 0 10px;
-        }}
-        .temp-password {{
-            font-size: 20px;
-            font-weight: bold;
-            color: #2e59a6;
-            background-color: #e1eefa;
-            padding: 10px;
-            text-align: center;
-            border-radius: 4px;
-        }}
-        .footer {{
-            background-color: #f1f1f1;
-            text-align: center;
-            font-size: 12px;
-            color: #777;
-            padding: 10px;
-        }}
-    </style>
-</head>
-<body>
-    <div class='container'>
-        <div class='header'>
-            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
-            <h2>Contraseña Temporal</h2>
-        </div>
-        <div class='content'>
-            <p>Hola <strong>{usuario.nombre}</strong>,</p>
-            <p>Hemos generado una contraseña temporal para tu acceso:</p>
-            <p class='temp-password'>{contrasenaTemporal}</p>
-            <p>Por favor, cambia esta contraseña en tu primer acceso para garantizar la seguridad de tu cuenta.</p>
-        </div>
-        <div class='footer'>
-            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
-        </div>
-    </div>
-</body>
-</html>";
+                <!DOCTYPE html>
+                <html lang='es'>
+                <head>
+                    <meta charset='UTF-8'>
+                    <style>
+                        body {{
+                            font-family: Arial, sans-serif;
+                            background-color: #f4f6f8;
+                            padding: 20px;
+                            color: #333;
+                        }}
+                        .container {{
+                            max-width: 600px;
+                            margin: auto;
+                            background-color: #fff;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                            overflow: hidden;
+                        }}
+                        .header {{
+                            background-color: #2c3e50;
+                            color: #fff;
+                            padding: 20px;
+                            text-align: center;
+                        }}
+                        .header img {{
+                            max-height: 60px;
+                            margin-bottom: 10px;
+                        }}
+                        .content {{
+                            padding: 20px;
+                        }}
+                        .content p {{
+                            margin: 0 0 10px;
+                        }}
+                        .temp-password {{
+                            font-size: 20px;
+                            font-weight: bold;
+                            color: #2e59a6;
+                            background-color: #e1eefa;
+                            padding: 10px;
+                            text-align: center;
+                            border-radius: 4px;
+                        }}
+                        .footer {{
+                            background-color: #f1f1f1;
+                            text-align: center;
+                            font-size: 12px;
+                            color: #777;
+                            padding: 10px;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div class='container'>
+                        <div class='header'>
+                            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+                            <h2>Contraseña Temporal</h2>
+                        </div>
+                        <div class='content'>
+                            <p>Hola <strong>{usuario.nombre} {usuario.apellido}</strong>,</p>
+                            <p>Hemos generado una contraseña temporal para tu acceso:</p>
+                            <p class='temp-password'>{contrasenaTemporal}</p>
+                            <p>Por favor, cambia esta contraseña en tu primer acceso para garantizar la seguridad de tu cuenta.</p>
+                        </div>
+                        <div class='footer'>
+                            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+                        </div>
+                    </div>
+                </body>
+                </html>";
 
             using (var smtp = new SmtpClient("smtp.gmail.com", 587))
             {
@@ -492,4 +522,6 @@ namespace GestionTickets.Controllers
         public string ContrasenaActual { get; set; }
         public string NuevaContrasena { get; set; }
     }
+
+
 }

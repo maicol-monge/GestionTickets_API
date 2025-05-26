@@ -70,7 +70,8 @@ namespace GestionTickets.Controllers
     [FromQuery] int? mes = null,
     [FromQuery] int? anio = null,
     [FromQuery] string? textoBusqueda = null,
-    [FromQuery] int? idUsuario = null)
+    [FromQuery] int? idUsuario = null,
+    [FromQuery] int? idTicket = null) // <-- Agregado idTicket
         {
             IQueryable<ticket> query = _context.ticket;
 
@@ -111,6 +112,11 @@ namespace GestionTickets.Controllers
             if (idUsuario.HasValue)
             {
                 query = query.Where(t => t.id_usuario == idUsuario.Value);
+            }
+
+            if (idTicket.HasValue)
+            {
+                query = query.Where(t => t.id_ticket == idTicket.Value);
             }
 
             return await query.ToListAsync();
