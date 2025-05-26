@@ -28,6 +28,8 @@ builder.Services.AddDbContext<ticketsContext>(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddHostedService<TicketAutoCloseService>();
+
 var app = builder.Build();
 
 app.UseCors("AllowFrontend");

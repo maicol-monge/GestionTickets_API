@@ -20,19 +20,32 @@ namespace GestionTickets.Controllers
         {
             try
             {
-                // Estado: 'A' -> Abierto
+                // Tickets abiertos y cerrados (tabla ticket)
                 var abiertos = await _context.ticket.CountAsync(t => t.estado == "A");
+                var cerrados = await _context.ticket.CountAsync(t => t.estado == "C");
 
-                // Estado_ticket: 'E' -> En progreso
-                var enProgreso = await _context.asignacion_ticket.CountAsync(a => a.estado_ticket == 'E');
+                // Agrupar por id_ticket y tomar el último registro de asignacion_ticket
+                var ultimasAsignaciones = await _context.asignacion_ticket
+                    .GroupBy(a => a.id_ticket)
+                    .Select(g => g.OrderByDescending(a => a.fecha_asignacion).FirstOrDefault())
+                    .ToListAsync();
 
-                // Estado_ticket: 'R' -> Resuelto
-                var resueltos = await _context.asignacion_ticket.CountAsync(a => a.estado_ticket == 'R');
+                // Contar por estado_ticket del último registro
+                var enProgreso = ultimasAsignaciones.Count(a => a != null && a.estado_ticket == 'P');
+                var enEspera = ultimasAsignaciones.Count(a => a != null && a.estado_ticket == 'E');
+                var resueltos = ultimasAsignaciones.Count(a => a != null && a.estado_ticket == 'R');
+                var asignados = ultimasAsignaciones.Count(a => a != null && a.estado_ticket == 'A');
+                var desasignados = ultimasAsignaciones.Count(a => a != null && a.estado_ticket == 'D');
+
                 return Ok(new
                 {
                     abiertos,
+                    cerrados,
                     enProgreso,
-                    resueltos
+                    enEspera,
+                    resueltos,
+                    asignados,
+                    desasignados
                 });
             }
             catch (Exception ex)
