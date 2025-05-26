@@ -16,6 +16,10 @@ namespace GestionTickets.Models
         public DbSet<archivo_adjunto> archivo_adjunto { get; set; }
         public DbSet<asignacion_ticket> asignacion_ticket { get; set; }
         public DbSet<tecnico> tecnico { get; set; }
+        public DbSet<tarea_ticket> tarea_ticket { get; set; }
+        public DbSet<comentario> comentario { get; set; }
+
+
 
 
     }
