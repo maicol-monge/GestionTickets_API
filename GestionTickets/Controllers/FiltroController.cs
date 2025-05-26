@@ -122,9 +122,6 @@ namespace GestionTickets.Controllers
             return await query.ToListAsync();
         }
 
-
-
-
         [HttpGet("mis-asignaciones")]
         public async Task<ActionResult<IEnumerable<object>>> GetTicketsPorUsuario(
     [FromQuery] int idUsuario,
@@ -133,77 +130,119 @@ namespace GestionTickets.Controllers
     [FromQuery] int? idCategoria = null,
     [FromQuery] int? mes = null,
     [FromQuery] int? anio = null,
-    [FromQuery] string textoBusqueda = null)
+    [FromQuery] string textoBusqueda = null,
+    [FromQuery] int? idTicket = null)
         {
-            // Primero obtenemos los técnicos relacionados al usuario
+            // 1. Obtener los técnicos relacionados al usuario
             var tecnicosIds = await _context.tecnico
                 .Where(tec => tec.id_usuario == idUsuario)
                 .Select(tec => tec.id_tecnico)
                 .ToListAsync();
 
-            // Ahora el query que une las tablas y filtra por técnicos asignados
-            var query = from u in _context.usuario
-                        join tec in _context.tecnico on u.id_usuario equals tec.id_usuario
-                        join at in _context.asignacion_ticket on tec.id_tecnico equals at.id_tecnico
-                        join t in _context.ticket on at.id_ticket equals t.id_ticket
-                        where tecnicosIds.Contains(tec.id_tecnico) // solo técnicos asignados al usuario
-                        select new
-                        {
-                            id_usuario = u.id_usuario,
-                            nombre_completo = u.nombre + " " + u.apellido,
-                            id_ticket = t.id_ticket,
-                            titulo = t.titulo,
-                            descripcion = t.descripcion,
-                            prioridad = t.prioridad,
-                            fecha_creacion = t.fecha_creacion,
-                            fecha_asignacion = at.fecha_asignacion,
-                            estado_ticket = at.estado_ticket,
-                            estado = t.estado,
-                            id_categoria = t.id_categoria
-                        };
+            // 2. Traer todas las asignaciones relevantes a memoria
+            var asignaciones = await _context.asignacion_ticket
+                .Where(at => tecnicosIds.Contains(at.id_tecnico))
+                .ToListAsync();
 
-            // Aplicar filtros sobre los tickets:
+            // 3. Agrupar y filtrar en memoria
+            var asignacionesValidas = asignaciones
+                .GroupBy(at => new { at.id_ticket, at.id_tecnico })
+                .Select(g =>
+                {
+                    var countA = g.Count(x => x.estado_ticket == 'A');
+                    var countD = g.Count(x => x.estado_ticket == 'D');
+                    var ultimaA = g.Where(x => x.estado_ticket == 'A')
+                                   .OrderByDescending(x => x.fecha_asignacion)
+                                   .FirstOrDefault();
+                    return new
+                    {
+                        g.Key.id_ticket,
+                        g.Key.id_tecnico,
+                        countA,
+                        countD,
+                        ultimaAsignacionFecha = ultimaA?.fecha_asignacion,
+                        ultimaAsignacionEstado = ultimaA?.estado_ticket
+                    };
+                })
+                .Where(x => x.countA > x.countD && x.ultimaAsignacionFecha != null)
+                .ToList();
+
+            // 4. Obtener los tickets y técnicos relacionados a los tickets válidos
+            var ticketsIdsValidos = asignacionesValidas.Select(x => x.id_ticket).Distinct().ToList();
+            var tecnicosIdsValidos = asignacionesValidas.Select(x => x.id_tecnico).Distinct().ToList();
+
+            var tickets = await _context.ticket
+                .Where(t => ticketsIdsValidos.Contains(t.id_ticket))
+                .ToListAsync();
+
+            var tecnicos = await _context.tecnico
+                .Where(tec => tecnicosIdsValidos.Contains(tec.id_tecnico))
+                .ToListAsync();
+
+            var usuarios = await _context.usuario
+                .ToListAsync();
+
+            // 5. Unir todo en memoria
+            var resultado = (from av in asignacionesValidas
+                             join t in tickets on av.id_ticket equals t.id_ticket
+                             join tec in tecnicos on av.id_tecnico equals tec.id_tecnico
+                             join u in usuarios on tec.id_usuario equals u.id_usuario
+                             select new
+                             {
+                                 id_usuario = u.id_usuario,
+                                 nombre_completo = u.nombre + " " + u.apellido,
+                                 id_ticket = t.id_ticket,
+                                 titulo = t.titulo,
+                                 descripcion = t.descripcion,
+                                 prioridad = t.prioridad,
+                                 fecha_creacion = t.fecha_creacion,
+                                 fecha_asignacion = av.ultimaAsignacionFecha,
+                                 estado_ticket = av.ultimaAsignacionEstado,
+                                 estado = t.estado,
+                                 id_categoria = t.id_categoria
+                             }).AsQueryable();
+
+            // 6. Filtros adicionales en memoria
             if (!string.IsNullOrEmpty(estado) && estado != "todos")
             {
                 if (estado == "activos")
                 {
-                    query = query.Where(x => x.estado == "A");
-                }
-                else
-                {
-                    // Puedes agregar más estados aquí
+                    resultado = resultado.Where(x => x.estado == "A");
                 }
             }
 
             if (!string.IsNullOrEmpty(prioridad))
             {
-                query = query.Where(x => x.prioridad == prioridad);
+                resultado = resultado.Where(x => x.prioridad == prioridad);
             }
 
             if (idCategoria.HasValue && idCategoria.Value != 0)
             {
-                query = query.Where(x => x.id_categoria == idCategoria.Value);
+                resultado = resultado.Where(x => x.id_categoria == idCategoria.Value);
             }
 
             if (anio.HasValue)
             {
-                query = query.Where(x => x.fecha_creacion.Year == anio.Value);
+                resultado = resultado.Where(x => x.fecha_creacion.Year == anio.Value);
             }
 
             if (mes.HasValue && mes.Value != 0)
             {
-                query = query.Where(x => x.fecha_creacion.Month == mes.Value);
+                resultado = resultado.Where(x => x.fecha_creacion.Month == mes.Value);
             }
 
             if (!string.IsNullOrEmpty(textoBusqueda))
             {
                 string texto = textoBusqueda.ToLower();
-                query = query.Where(x => x.titulo.ToLower().Contains(texto) || x.descripcion.ToLower().Contains(texto));
+                resultado = resultado.Where(x => x.titulo.ToLower().Contains(texto) || x.descripcion.ToLower().Contains(texto));
             }
 
-            var resultado = await query.ToListAsync();
+            if (idTicket.HasValue)
+            {
+                resultado = resultado.Where(x => x.id_ticket == idTicket.Value);
+            }
 
-            return Ok(resultado);
+            return Ok(resultado.ToList());
         }
 
         //Obtener el año más antiguo segun la fecha de creación de los tickets
@@ -232,6 +271,26 @@ namespace GestionTickets.Controllers
                 .ToListAsync();
 
             return Ok(usuarios);
+        }
+
+        [HttpGet("obtener-tecnicos")]
+        public async Task<ActionResult<IEnumerable<object>>> GetTecnicos()
+        {
+            var tecnicos = await _context.tecnico
+                .Join(_context.usuario,
+                      tec => tec.id_usuario,
+                      usr => usr.id_usuario,
+                      (tec, usr) => new
+                      {
+                          tec.id_tecnico,
+                          tec.id_usuario,
+                          nombre = usr.nombre,
+                          apellido = usr.apellido,
+                          tec.id_categoria
+                      })
+                .ToListAsync();
+
+            return Ok(tecnicos);
         }
 
         [HttpGet("tickets-todos")]

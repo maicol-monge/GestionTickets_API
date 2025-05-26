@@ -1242,6 +1242,143 @@ namespace GestionTickets.Controllers
             });
         }
 
+        [HttpPut("actualizar-resolucion/{id_ticket}")]
+        public async Task<IActionResult> ActualizarResolucion(int id_ticket, [FromBody] ActualizarResolucionRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.resolucion))
+                return BadRequest("La resolución es obligatoria.");
+
+            var ticket = await _ticketsContexto.ticket.FindAsync(id_ticket);
+            if (ticket == null)
+                return NotFound(new { Message = "Ticket no encontrado." });
+
+            ticket.resolucion = request.resolucion;
+            _ticketsContexto.ticket.Update(ticket);
+            await _ticketsContexto.SaveChangesAsync();
+
+            // Notificar al usuario creador del ticket
+            var usuarioCreador = await _ticketsContexto.usuario.FindAsync(ticket.id_usuario);
+            if (usuarioCreador != null && !string.IsNullOrEmpty(usuarioCreador.correo))
+            {
+                try
+                {
+                    await EnviarCorreoResolucionAsync(usuarioCreador.correo, "Resolución de tu ticket", ticket, usuarioCreador);
+                }
+                catch (Exception ex)
+                {
+                    return Ok(new { Message = "Resolución actualizada, pero hubo un error al enviar el correo: " + ex.Message, Ticket = ticket });
+                }
+            }
+
+            return Ok(new { Message = "Resolución actualizada correctamente.", Ticket = ticket });
+        }
+
+        private async Task EnviarCorreoResolucionAsync(string destinatario, string asunto, ticket ticket, usuario usuarioCreador)
+        {
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f8;
+            padding: 20px;
+            color: #333;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background-color: #2e59a6;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }}
+        .header img {{
+            max-height: 60px;
+            margin-bottom: 10px;
+        }}
+        .content {{
+            padding: 20px;
+        }}
+        .footer {{
+            background-color: #f1f1f1;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            padding: 10px;
+        }}
+        .ticket-detail {{
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }}
+        .ticket-detail strong {{
+            color: #1abc9c;
+        }}
+        .tracking-id {{
+            font-size: 16px;
+            font-weight: bold;
+            color: #2e59a6;
+            margin-bottom: 10px;
+        }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>Resolución de tu ticket</h2>
+        </div>
+        <div class='content'>
+            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+            <p>Hola <strong>{usuarioCreador.nombre}</strong>,</p>
+            <p>Se ha actualizado la resolución de tu ticket:</p>
+            <div class='ticket-detail'>
+                <p><strong>Título:</strong> {ticket.titulo}</p>
+                <p><strong>Descripción:</strong> {ticket.descripcion}</p>
+                <p><strong>Resolución:</strong> {ticket.resolucion}</p>
+                <p><strong>Fecha de creación:</strong> {ticket.fecha_creacion:dd/MM/yyyy HH:mm}</p>
+            </div>
+            <p>Si tienes dudas, comunícate con soporte.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+
+            using (var smtp = new SmtpClient("smtp.gmail.com", 587))
+            {
+                smtp.UseDefaultCredentials = false;
+                smtp.Credentials = new NetworkCredential("n3otech2@gmail.com", "cjuc xhsk vtmw qzub");
+                smtp.EnableSsl = true;
+
+                var correo = new MailMessage
+                {
+                    From = new MailAddress("n3otech2@gmail.com", "Soporte Técnico"),
+                    Subject = asunto,
+                    Body = mensaje,
+                    IsBodyHtml = true
+                };
+
+                correo.To.Add(destinatario);
+
+                await smtp.SendMailAsync(correo);
+            }
+        }
+
+        
+
         [HttpPut("reactivar/{id_ticket}")]
         public async Task<IActionResult> ReactivarTicket(int id_ticket)
         {
@@ -1352,6 +1489,834 @@ namespace GestionTickets.Controllers
             return Ok(new { Message = "Ticket reactivado correctamente.", Ticket = ticket });
         }
 
+        [HttpGet("ultima-asignacion/{id_ticket}")]
+        public async Task<IActionResult> ObtenerUltimaAsignacion(int id_ticket)
+        {
+            var ultimaAsignacion = await _ticketsContexto.asignacion_ticket
+                .Where(a => a.id_ticket == id_ticket)
+                .OrderByDescending(a => a.fecha_asignacion)
+                .Select(a => new
+                {
+                    a.id_asignacion,
+                    a.id_ticket,
+                    a.id_tecnico,
+                    a.fecha_asignacion,
+                    a.estado_ticket
+                })
+                .FirstOrDefaultAsync();
+
+            if (ultimaAsignacion == null)
+                return NotFound(new { Message = "No hay asignaciones para este ticket." });
+
+            return Ok(ultimaAsignacion);
+        }
+
+        [HttpPost("cambiar-estado-asignacion")]
+        public async Task<IActionResult> CambiarEstadoAsignacion([FromBody] CambiarEstadoAsignacionRequest request)
+        {
+            // Validaciones básicas
+            if (request.id_ticket <= 0)
+                return BadRequest("El id_ticket es obligatorio.");
+            if (request.id_usuario_tecnico <= 0)
+                return BadRequest("El id_usuario_tecnico es obligatorio.");
+            if (string.IsNullOrEmpty(request.estado_ticket) || !"PER".Contains(request.estado_ticket))
+                return BadRequest("El estado_ticket debe ser 'P', 'E' o 'R'.");
+
+            // Verificar existencia de ticket
+            var ticket = await _ticketsContexto.ticket.FindAsync(request.id_ticket);
+            if (ticket == null)
+                return NotFound(new { Message = "Ticket no encontrado" });
+
+            // Buscar técnico por id_usuario
+            var tecnico = await _ticketsContexto.tecnico.FirstOrDefaultAsync(t => t.id_usuario == request.id_usuario_tecnico);
+            if (tecnico == null)
+                return NotFound(new { Message = "Técnico no encontrado para el usuario proporcionado" });
+
+            var usuarioCreador = await _ticketsContexto.usuario.FindAsync(ticket.id_usuario);
+
+            var asignacion = new asignacion_ticket
+            {
+                id_ticket = request.id_ticket,
+                id_tecnico = tecnico.id_tecnico,
+                fecha_asignacion = DateTime.Now,
+                estado_ticket = request.estado_ticket[0]
+            };
+
+            _ticketsContexto.asignacion_ticket.Add(asignacion);
+            await _ticketsContexto.SaveChangesAsync();
+
+            // Correo al creador del ticket
+            if (usuarioCreador != null && !string.IsNullOrEmpty(usuarioCreador.correo))
+            {
+                try
+                {
+                    await EnviarCorreoCambioEstadoAsignacionAsync(usuarioCreador.correo, ticket, usuarioCreador, asignacion.estado_ticket);
+                }
+                catch { /* Ignorar error de correo al creador */ }
+            }
+
+            return Ok(new { Message = "Estado de asignación registrado correctamente", Asignacion = asignacion });
+        }
+
+        private async Task EnviarCorreoCambioEstadoAsignacionAsync(string destinatario, ticket ticket, usuario usuarioCreador, char estado_ticket)
+        {
+            string estadoTexto = estado_ticket switch
+            {
+                'P' => "En progreso",
+                'E' => "En espera de información del cliente",
+                'R' => "Resuelto",
+                _ => "Actualizado"
+            };
+
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f8;
+            padding: 20px;
+            color: #333;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background-color: #2e59a6;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }}
+        .header img {{
+            max-height: 60px;
+            margin-bottom: 10px;
+        }}
+        .content {{
+            padding: 20px;
+        }}
+        .footer {{
+            background-color: #f1f1f1;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            padding: 10px;
+        }}
+        .ticket-detail {{
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }}
+        .ticket-detail strong {{
+            color: #1abc9c;
+        }}
+        .tracking-id {{
+            font-size: 16px;
+            font-weight: bold;
+            color: #2e59a6;
+            margin-bottom: 10px;
+        }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>Actualización de estado de tu ticket</h2>
+        </div>
+        <div class='content'>
+            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+            <p>Hola <strong>{usuarioCreador.nombre}</strong>,</p>
+            <p>El estado de tu ticket ha sido actualizado a: <strong>{estadoTexto}</strong></p>
+            <div class='ticket-detail'>
+                <p><strong>Título:</strong> {ticket.titulo}</p>
+                <p><strong>Descripción:</strong> {ticket.descripcion}</p>
+                <p><strong>Prioridad:</strong> {ticket.prioridad}</p>
+                <p><strong>Tipo:</strong> {ticket.tipo_ticket}</p>
+                <p><strong>Estado actual:</strong> {estadoTexto}</p>
+                <p><strong>Fecha de creación:</strong> {ticket.fecha_creacion:dd/MM/yyyy HH:mm}</p>
+            </div>
+            <p>Si tienes dudas, comunícate con soporte.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+
+            using (var smtp = new SmtpClient("smtp.gmail.com", 587))
+            {
+                smtp.UseDefaultCredentials = false;
+                smtp.Credentials = new NetworkCredential("n3otech2@gmail.com", "cjuc xhsk vtmw qzub");
+                smtp.EnableSsl = true;
+
+                var correo = new MailMessage
+                {
+                    From = new MailAddress("n3otech2@gmail.com", "Soporte Técnico"),
+                    Subject = "Actualización de estado de tu ticket",
+                    Body = mensaje,
+                    IsBodyHtml = true
+                };
+
+                correo.To.Add(destinatario);
+
+                await smtp.SendMailAsync(correo);
+            }
+        }
+
+        [HttpPut("cerrar/{id_ticket}")]
+        public async Task<IActionResult> CerrarTicket(int id_ticket)
+        {
+            var ticket = await _ticketsContexto.ticket.FindAsync(id_ticket);
+            if (ticket == null)
+                return NotFound(new { Message = "Ticket no encontrado." });
+
+            if (ticket.estado == "C")
+                return BadRequest(new { Message = "El ticket ya está cerrado." });
+
+            ticket.estado = "C";
+            ticket.fecha_cierre = DateTime.Now;
+
+            _ticketsContexto.ticket.Update(ticket);
+            await _ticketsContexto.SaveChangesAsync();
+
+            // Notificar al usuario creador del ticket
+            var usuarioCreador = await _ticketsContexto.usuario.FindAsync(ticket.id_usuario);
+            if (usuarioCreador != null && !string.IsNullOrEmpty(usuarioCreador.correo))
+            {
+                try
+                {
+                    await EnviarCorreoCierreTicketAsync(usuarioCreador.correo, ticket, usuarioCreador);
+                }
+                catch (Exception ex)
+                {
+                    return Ok(new { Message = "Ticket cerrado, pero hubo un error al enviar el correo: " + ex.Message, Ticket = ticket });
+                }
+            }
+
+            // Notificar al técnico asignado (última asignación con estado 'A' o 'P' o 'R')
+            var asignacionTecnico = await _ticketsContexto.asignacion_ticket
+                .Where(a => a.id_ticket == ticket.id_ticket && (a.estado_ticket == 'A' || a.estado_ticket == 'P' || a.estado_ticket == 'R'))
+                .OrderByDescending(a => a.fecha_asignacion)
+                .FirstOrDefaultAsync();
+
+            if (asignacionTecnico != null)
+            {
+                var tecnico = await _ticketsContexto.tecnico.FindAsync(asignacionTecnico.id_tecnico);
+                if (tecnico != null)
+                {
+                    var usuarioTecnico = await _ticketsContexto.usuario.FindAsync(tecnico.id_usuario);
+                    if (usuarioTecnico != null && !string.IsNullOrEmpty(usuarioTecnico.correo))
+                    {
+                        try
+                        {
+                            await EnviarCorreoCierreTicketTecnicoAsync(usuarioTecnico.correo, ticket, usuarioTecnico);
+                        }
+                        catch
+                        {
+                            // No interrumpe la respuesta si falla el correo al técnico
+                        }
+                    }
+                }
+            }
+
+            return Ok(new { Message = "Ticket cerrado correctamente.", Ticket = ticket });
+        }
+
+        private async Task EnviarCorreoCierreTicketAsync(string destinatario, ticket ticket, usuario usuarioCreador)
+        {
+            string resolucionHtml = string.IsNullOrWhiteSpace(ticket.resolucion)
+                ? "<p><strong>Resolución:</strong> No se registró resolución.</p>"
+                : $"<p><strong>Resolución:</strong> {ticket.resolucion}</p>";
+
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f8;
+            padding: 20px;
+            color: #333;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background-color: #2e59a6;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }}
+        .header img {{
+            max-height: 60px;
+            margin-bottom: 10px;
+        }}
+        .content {{
+            padding: 20px;
+        }}
+        .footer {{
+            background-color: #f1f1f1;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            padding: 10px;
+        }}
+        .ticket-detail {{
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }}
+        .ticket-detail strong {{
+            color: #1abc9c;
+        }}
+        .tracking-id {{
+            font-size: 16px;
+            font-weight: bold;
+            color: #2e59a6;
+            margin-bottom: 10px;
+        }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>Ticket Cerrado</h2>
+        </div>
+        <div class='content'>
+            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+            <p>Hola <strong>{usuarioCreador.nombre}</strong>,</p>
+            <p>Tu ticket ha sido cerrado exitosamente. Aquí tienes los detalles:</p>
+            <div class='ticket-detail'>
+                <p><strong>Título:</strong> {ticket.titulo}</p>
+                <p><strong>Descripción:</strong> {ticket.descripcion}</p>
+                <p><strong>Prioridad:</strong> {ticket.prioridad}</p>
+                <p><strong>Tipo:</strong> {ticket.tipo_ticket}</p>
+                <p><strong>Estado:</strong> Cerrado</p>
+                <p><strong>Fecha de creación:</strong> {ticket.fecha_creacion:dd/MM/yyyy HH:mm}</p>
+                <p><strong>Fecha de cierre:</strong> {ticket.fecha_cierre:dd/MM/yyyy HH:mm}</p>
+                {resolucionHtml}
+            </div>
+            <p>Gracias por utilizar nuestro sistema. Si tienes dudas, comunícate con soporte.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+
+            using (var smtp = new SmtpClient("smtp.gmail.com", 587))
+            {
+                smtp.UseDefaultCredentials = false;
+                smtp.Credentials = new NetworkCredential("n3otech2@gmail.com", "cjuc xhsk vtmw qzub");
+                smtp.EnableSsl = true;
+
+                var correo = new MailMessage
+                {
+                    From = new MailAddress("n3otech2@gmail.com", "Soporte Técnico"),
+                    Subject = "Tu ticket ha sido cerrado",
+                    Body = mensaje,
+                    IsBodyHtml = true
+                };
+
+                correo.To.Add(destinatario);
+
+                await smtp.SendMailAsync(correo);
+            }
+        }
+
+        private async Task EnviarCorreoCierreTicketTecnicoAsync(string destinatario, ticket ticket, usuario usuarioTecnico)
+        {
+            string resolucionHtml = string.IsNullOrWhiteSpace(ticket.resolucion)
+                ? "<p><strong>Resolución:</strong> No se registró resolución.</p>"
+                : $"<p><strong>Resolución:</strong> {ticket.resolucion}</p>";
+
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f8;
+            padding: 20px;
+            color: #333;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background-color: #2e59a6;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }}
+        .header img {{
+            max-height: 60px;
+            margin-bottom: 10px;
+        }}
+        .content {{
+            padding: 20px;
+        }}
+        .footer {{
+            background-color: #f1f1f1;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            padding: 10px;
+        }}
+        .ticket-detail {{
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }}
+        .ticket-detail strong {{
+            color: #1abc9c;
+        }}
+        .tracking-id {{
+            font-size: 16px;
+            font-weight: bold;
+            color: #2e59a6;
+            margin-bottom: 10px;
+        }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>¡Ticket cerrado por el cliente!</h2>
+        </div>
+        <div class='content'>
+            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+            <p>Hola <strong>{usuarioTecnico.nombre} {usuarioTecnico.apellido}</strong>,</p>
+            <p>El ticket que tenías asignado ha sido cerrado por el cliente. ¡Felicidades por tu buen trabajo!</p>
+            <div class='ticket-detail'>
+                <p><strong>Título:</strong> {ticket.titulo}</p>
+                <p><strong>Descripción:</strong> {ticket.descripcion}</p>
+                <p><strong>Prioridad:</strong> {ticket.prioridad}</p>
+                <p><strong>Tipo:</strong> {ticket.tipo_ticket}</p>
+                <p><strong>Estado:</strong> Cerrado</p>
+                <p><strong>Fecha de creación:</strong> {ticket.fecha_creacion:dd/MM/yyyy HH:mm}</p>
+                <p><strong>Fecha de cierre:</strong> {ticket.fecha_cierre:dd/MM/yyyy HH:mm}</p>
+                {resolucionHtml}
+            </div>
+            <p>Gracias por tu dedicación y esfuerzo.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+
+            using (var smtp = new SmtpClient("smtp.gmail.com", 587))
+            {
+                smtp.UseDefaultCredentials = false;
+                smtp.Credentials = new NetworkCredential("n3otech2@gmail.com", "cjuc xhsk vtmw qzub");
+                smtp.EnableSsl = true;
+
+                var correo = new MailMessage
+                {
+                    From = new MailAddress("n3otech2@gmail.com", "Soporte Técnico"),
+                    Subject = "¡Ticket cerrado por el cliente! ¡Buen trabajo!",
+                    Body = mensaje,
+                    IsBodyHtml = true
+                };
+
+                correo.To.Add(destinatario);
+
+                await smtp.SendMailAsync(correo);
+            }
+        }
+
+        [HttpPost("rechazar-resolucion")]
+        public async Task<IActionResult> RechazarResolucion([FromBody] RechazarResolucionRequest request)
+        {
+            if (request == null || request.id_ticket <= 0 || request.id_usuario_rechaza <= 0)
+                return BadRequest("El id_ticket y el id_usuario_rechaza son obligatorios.");
+
+            // Buscar ticket
+            var ticket = await _ticketsContexto.ticket.FindAsync(request.id_ticket);
+            if (ticket == null)
+                return NotFound(new { Message = "Ticket no encontrado." });
+
+            // Buscar técnico actualmente asignado (última asignación con estado 'A')
+            var asignacionActual = await _ticketsContexto.asignacion_ticket
+                .Where(a => a.id_ticket == request.id_ticket && a.estado_ticket == 'A')
+                .OrderByDescending(a => a.fecha_asignacion)
+                .FirstOrDefaultAsync();
+
+            if (asignacionActual == null)
+                return NotFound(new { Message = "No hay técnico asignado actualmente a este ticket." });
+
+            // Crear nuevo registro en asignacion_ticket con estado 'P'
+            var nuevaAsignacion = new asignacion_ticket
+            {
+                id_ticket = request.id_ticket,
+                id_tecnico = asignacionActual.id_tecnico,
+                fecha_asignacion = DateTime.Now,
+                estado_ticket = 'P'
+            };
+            _ticketsContexto.asignacion_ticket.Add(nuevaAsignacion);
+            await _ticketsContexto.SaveChangesAsync();
+
+            // Buscar usuario que rechaza (creador)
+            var usuarioRechaza = await _ticketsContexto.usuario.FindAsync(request.id_usuario_rechaza);
+
+            // Buscar usuario técnico
+            usuario usuarioTecnico = null;
+            var tecnico = await _ticketsContexto.tecnico.FindAsync(asignacionActual.id_tecnico);
+            if (tecnico != null)
+                usuarioTecnico = await _ticketsContexto.usuario.FindAsync(tecnico.id_usuario);
+
+            // Correo al creador del ticket (quien rechaza)
+            if (usuarioRechaza != null && !string.IsNullOrEmpty(usuarioRechaza.correo))
+            {
+                await EnviarCorreoRechazoResolucionCreadorAsync(usuarioRechaza.correo, ticket, usuarioRechaza);
+            }
+
+            // Correo al técnico asignado
+            if (usuarioTecnico != null && !string.IsNullOrEmpty(usuarioTecnico.correo))
+            {
+                await EnviarCorreoRechazoResolucionTecnicoAsync(usuarioTecnico.correo, ticket, usuarioRechaza, usuarioTecnico);
+            }
+
+            return Ok(new { Message = "Resolución rechazada, se notificó a las partes y el ticket vuelve a estar en proceso." });
+        }
+
+        private async Task EnviarCorreoRechazoResolucionCreadorAsync(string destinatario, ticket ticket, usuario usuario)
+        {
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{ font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; color: #333; }}
+        .container {{ max-width: 600px; margin: auto; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }}
+        .header {{ background-color: #2e59a6; color: #fff; padding: 20px; text-align: center; }}
+        .header img {{ max-height: 60px; margin-bottom: 10px; }}
+        .content {{ padding: 20px; }}
+        .footer {{ background-color: #f1f1f1; text-align: center; font-size: 12px; color: #777; padding: 10px; }}
+        .ticket-detail {{ background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-top: 15px; }}
+        .ticket-detail strong {{ color: #1abc9c; }}
+        .tracking-id {{ font-size: 16px; font-weight: bold; color: #2e59a6; margin-bottom: 10px; }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>Resolución rechazada</h2>
+        </div>
+        <div class='content'>
+            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+            <p>Hola <strong>{usuario.nombre}</strong>,</p>
+            <p>Has rechazado la resolución del ticket. Soporte técnico dará seguimiento a tu caso.</p>
+            <div class='ticket-detail'>
+                <p><strong>Título:</strong> {ticket.titulo}</p>
+                <p><strong>Fecha:</strong> {DateTime.Now:dd/MM/yyyy HH:mm}</p>
+            </div>
+            <p>En breve recibirás una nueva respuesta de soporte técnico.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+            await EnviarCorreoSimple(destinatario, "Has rechazado la resolución del ticket", mensaje);
+        }
+
+        private async Task EnviarCorreoRechazoResolucionTecnicoAsync(string destinatario, ticket ticket, usuario usuarioRechaza, usuario usuarioTecnico)
+        {
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{ font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; color: #333; }}
+        .container {{ max-width: 600px; margin: auto; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }}
+        .header {{ background-color: #2e59a6; color: #fff; padding: 20px; text-align: center; }}
+        .header img {{ max-height: 60px; margin-bottom: 10px; }}
+        .content {{ padding: 20px; }}
+        .footer {{ background-color: #f1f1f1; text-align: center; font-size: 12px; color: #777; padding: 10px; }}
+        .ticket-detail {{ background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-top: 15px; }}
+        .ticket-detail strong {{ color: #1abc9c; }}
+        .tracking-id {{ font-size: 16px; font-weight: bold; color: #2e59a6; margin-bottom: 10px; }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>Resolución rechazada por el usuario</h2>
+        </div>
+        <div class='content'>
+            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+            <p>Hola <strong>{usuarioTecnico.nombre}</strong>,</p>
+            <p>El usuario <strong>{usuarioRechaza.nombre} {usuarioRechaza.apellido}</strong> ha rechazado la resolución del ticket. El ticket vuelve a estar en proceso.</p>
+            <div class='ticket-detail'>
+                <p><strong>Título:</strong> {ticket.titulo}</p>
+                <p><strong>Fecha:</strong> {DateTime.Now:dd/MM/yyyy HH:mm}</p>
+            </div>
+            <p>Por favor, revisa el ticket y da seguimiento.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+            await EnviarCorreoSimple(destinatario, "Resolución rechazada por el usuario", mensaje);
+        }
+
+        [HttpPost("agregar-archivos")]
+        public async Task<IActionResult> AgregarArchivosAdjuntos([FromBody] AgregarArchivosRequest request)
+        {
+            if (request == null || request.id_ticket <= 0 || request.archivos == null || !request.archivos.Any())
+                return BadRequest("El id_ticket y la lista de archivos son obligatorios.");
+
+            var ticket = await _ticketsContexto.ticket.FindAsync(request.id_ticket);
+            if (ticket == null)
+                return NotFound(new { Message = "Ticket no encontrado." });
+
+            // Limitar a máximo 5 archivos por ticket
+            var archivosExistentes = await _ticketsContexto.archivo_adjunto
+                .Where(a => a.id_ticket == request.id_ticket)
+                .CountAsync();
+            if (archivosExistentes + request.archivos.Count > 5)
+                return BadRequest("No se pueden adjuntar más de 5 archivos por ticket.");
+
+            var archivosAgregados = new List<archivo_adjunto>();
+            foreach (var archivo in request.archivos)
+            {
+                if (string.IsNullOrWhiteSpace(archivo.nombre) || string.IsNullOrWhiteSpace(archivo.url))
+                    continue;
+
+                var archivoAdjunto = new archivo_adjunto
+                {
+                    nombre_archivo = archivo.nombre,
+                    ruta_archivo = archivo.url,
+                    id_ticket = request.id_ticket
+                };
+                _ticketsContexto.archivo_adjunto.Add(archivoAdjunto);
+                archivosAgregados.Add(archivoAdjunto);
+            }
+
+            await _ticketsContexto.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Message = "Archivos adjuntos agregados correctamente.",
+                Archivos = archivosAgregados.Select(a => new
+                {
+                    a.id_archivo,
+                    a.nombre_archivo,
+                    a.ruta_archivo
+                })
+            });
+        }
+
+        [HttpPost("entregar-info-adicional")]
+        public async Task<IActionResult> EntregarInfoAdicional([FromBody] EntregarInfoAdicionalRequest request)
+        {
+            if (request == null || request.id_ticket <= 0 || request.id_usuario_entrega <= 0)
+                return BadRequest("El id_ticket y el id_usuario_entrega son obligatorios.");
+
+            // Buscar ticket
+            var ticket = await _ticketsContexto.ticket.FindAsync(request.id_ticket);
+            if (ticket == null)
+                return NotFound(new { Message = "Ticket no encontrado." });
+
+            // Buscar técnico actualmente asignado (última asignación con estado 'A')
+            var asignacionActual = await _ticketsContexto.asignacion_ticket
+                .Where(a => a.id_ticket == request.id_ticket && a.estado_ticket == 'A')
+                .OrderByDescending(a => a.fecha_asignacion)
+                .FirstOrDefaultAsync();
+
+            if (asignacionActual == null)
+                return NotFound(new { Message = "No hay técnico asignado actualmente a este ticket." });
+
+            // Crear nuevo registro en asignacion_ticket con estado 'P'
+            var nuevaAsignacion = new asignacion_ticket
+            {
+                id_ticket = request.id_ticket,
+                id_tecnico = asignacionActual.id_tecnico,
+                fecha_asignacion = DateTime.Now,
+                estado_ticket = 'P'
+            };
+            _ticketsContexto.asignacion_ticket.Add(nuevaAsignacion);
+            await _ticketsContexto.SaveChangesAsync();
+
+            // Buscar usuario que entrega la info (normalmente el creador)
+            var usuarioEntrega = await _ticketsContexto.usuario.FindAsync(request.id_usuario_entrega);
+
+            // Buscar usuario técnico
+            usuario usuarioTecnico = null;
+            var tecnico = await _ticketsContexto.tecnico.FindAsync(asignacionActual.id_tecnico);
+            if (tecnico != null)
+                usuarioTecnico = await _ticketsContexto.usuario.FindAsync(tecnico.id_usuario);
+
+            // Correo al creador del ticket
+            if (usuarioEntrega != null && !string.IsNullOrEmpty(usuarioEntrega.correo))
+            {
+                await EnviarCorreoInfoAdicionalCreadorAsync(usuarioEntrega.correo, ticket, usuarioEntrega);
+            }
+
+            // Correo al técnico asignado
+            if (usuarioTecnico != null && !string.IsNullOrEmpty(usuarioTecnico.correo))
+            {
+                await EnviarCorreoInfoAdicionalTecnicoAsync(usuarioTecnico.correo, ticket, usuarioEntrega, usuarioTecnico);
+            }
+
+            return Ok(new { Message = "Información adicional entregada, se notificó a las partes y el ticket vuelve a estar en proceso." });
+        }
+
+        private async Task EnviarCorreoInfoAdicionalCreadorAsync(string destinatario, ticket ticket, usuario usuario)
+        {
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{ font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; color: #333; }}
+        .container {{ max-width: 600px; margin: auto; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }}
+        .header {{ background-color: #2e59a6; color: #fff; padding: 20px; text-align: center; }}
+        .header img {{ max-height: 60px; margin-bottom: 10px; }}
+        .content {{ padding: 20px; }}
+        .footer {{ background-color: #f1f1f1; text-align: center; font-size: 12px; color: #777; padding: 10px; }}
+        .ticket-detail {{ background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-top: 15px; }}
+        .ticket-detail strong {{ color: #1abc9c; }}
+        .tracking-id {{ font-size: 16px; font-weight: bold; color: #2e59a6; margin-bottom: 10px; }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>Información adicional entregada</h2>
+        </div>
+        <div class='content'>
+            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+            <p>Hola <strong>{usuario.nombre}</strong>,</p>
+            <p>Has entregado información adicional para tu ticket. Soporte técnico dará seguimiento a tu caso.</p>
+            <div class='ticket-detail'>
+                <p><strong>Título:</strong> {ticket.titulo}</p>
+                <p><strong>Fecha:</strong> {DateTime.Now:dd/MM/yyyy HH:mm}</p>
+            </div>
+            <p>En breve recibirás una nueva respuesta de soporte técnico.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+            await EnviarCorreoSimple(destinatario, "Has entregado información adicional en tu ticket", mensaje);
+        }
+
+        private async Task EnviarCorreoInfoAdicionalTecnicoAsync(string destinatario, ticket ticket, usuario usuarioEntrega, usuario usuarioTecnico)
+        {
+            string mensaje = $@"
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+    <meta charset='UTF-8'>
+    <style>
+        body {{ font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; color: #333; }}
+        .container {{ max-width: 600px; margin: auto; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }}
+        .header {{ background-color: #2e59a6; color: #fff; padding: 20px; text-align: center; }}
+        .header img {{ max-height: 60px; margin-bottom: 10px; }}
+        .content {{ padding: 20px; }}
+        .footer {{ background-color: #f1f1f1; text-align: center; font-size: 12px; color: #777; padding: 10px; }}
+        .ticket-detail {{ background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-top: 15px; }}
+        .ticket-detail strong {{ color: #1abc9c; }}
+        .tracking-id {{ font-size: 16px; font-weight: bold; color: #2e59a6; margin-bottom: 10px; }}
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+            <h2>Información adicional entregada por el usuario</h2>
+        </div>
+        <div class='content'>
+            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+            <p>Hola <strong>{usuarioTecnico.nombre}</strong>,</p>
+            <p>El usuario <strong>{usuarioEntrega.nombre} {usuarioEntrega.apellido}</strong> ha entregado información adicional para el ticket. El ticket vuelve a estar en proceso.</p>
+            <div class='ticket-detail'>
+                <p><strong>Título:</strong> {ticket.titulo}</p>
+                <p><strong>Fecha:</strong> {DateTime.Now:dd/MM/yyyy HH:mm}</p>
+            </div>
+            <p>Por favor, revisa el ticket y da seguimiento.</p>
+        </div>
+        <div class='footer'>
+            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+        </div>
+    </div>
+</body>
+</html>";
+            await EnviarCorreoSimple(destinatario, "Información adicional entregada por el usuario", mensaje);
+        }
+
+        // DTO para la petición
+        public class EntregarInfoAdicionalRequest
+        {
+            public int id_ticket { get; set; }
+            public int id_usuario_entrega { get; set; }
+        }
+
+        // DTO para la petición
+        public class AgregarArchivosRequest
+        {
+            public int id_ticket { get; set; }
+            public List<ArchivoRequest> archivos { get; set; }
+        }
+
+        // DTO para la petición
+        public class RechazarResolucionRequest
+        {
+            public int id_ticket { get; set; }
+            public int id_usuario_rechaza { get; set; }
+        }
+
+        // DTO para la petición
+        public class CambiarEstadoAsignacionRequest
+        {
+            public int id_ticket { get; set; }
+            public int id_usuario_tecnico { get; set; }
+            public string estado_ticket { get; set; } // 'P', 'E', 'R'
+        }
+
         // Clase para recibir el cuerpo del POST
         public class TicketRequest
         {
@@ -1395,6 +2360,12 @@ namespace GestionTickets.Controllers
             public int id_ticket { get; set; }
             public int id_usuario { get; set; }
             public string contenido { get; set; }
+        }
+
+        // DTO para la petición
+        public class ActualizarResolucionRequest
+        {
+            public string resolucion { get; set; }
         }
     }
 }
