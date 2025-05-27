@@ -1377,7 +1377,7 @@ namespace GestionTickets.Controllers
             }
         }
 
-        
+
 
         [HttpPut("reactivar/{id_ticket}")]
         public async Task<IActionResult> ReactivarTicket(int id_ticket)
@@ -1484,6 +1484,109 @@ namespace GestionTickets.Controllers
         </body>
         </html>";
                 await EnviarCorreoSimple(usuarioCreador.correo, asunto, mensaje);
+            }
+
+            // Notificar al técnico asignado (última asignación con estado 'A', 'P' o 'R')
+            var asignacionTecnico = await _ticketsContexto.asignacion_ticket
+                .Where(a => a.id_ticket == ticket.id_ticket && (a.estado_ticket == 'A' || a.estado_ticket == 'P' || a.estado_ticket == 'R'))
+                .OrderByDescending(a => a.fecha_asignacion)
+                .FirstOrDefaultAsync();
+
+            if (asignacionTecnico != null)
+            {
+                var tecnico = await _ticketsContexto.tecnico.FindAsync(asignacionTecnico.id_tecnico);
+                if (tecnico != null)
+                {
+                    var usuarioTecnico = await _ticketsContexto.usuario.FindAsync(tecnico.id_usuario);
+                    if (usuarioTecnico != null && !string.IsNullOrEmpty(usuarioTecnico.correo))
+                    {
+                        string asunto = "Ticket reactivado: atención requerida";
+                        string mensaje = $@"
+                <!DOCTYPE html>
+                <html lang='es'>
+                <head>
+                    <meta charset='UTF-8'>
+                    <style>
+                        body {{
+                            font-family: Arial, sans-serif;
+                            background-color: #f4f6f8;
+                            padding: 20px;
+                            color: #333;
+                        }}
+                        .container {{
+                            max-width: 600px;
+                            margin: auto;
+                            background-color: #fff;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                            overflow: hidden;
+                        }}
+                        .header {{
+                            background-color: #2e59a6;
+                            color: #fff;
+                            padding: 20px;
+                            text-align: center;
+                        }}
+                        .header img {{
+                            max-height: 60px;
+                            margin-bottom: 10px;
+                        }}
+                        .content {{
+                            padding: 20px;
+                        }}
+                        .footer {{
+                            background-color: #f1f1f1;
+                            text-align: center;
+                            font-size: 12px;
+                            color: #777;
+                            padding: 10px;
+                        }}
+                        .ticket-detail {{
+                            background-color: #f9f9f9;
+                            padding: 15px;
+                            border-radius: 5px;
+                            margin-top: 15px;
+                        }}
+                        .ticket-detail strong {{
+                            color: #1abc9c;
+                        }}
+                        .tracking-id {{
+                            font-size: 16px;
+                            font-weight: bold;
+                            color: #2e59a6;
+                            margin-bottom: 10px;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div class='container'>
+                        <div class='header'>
+                            <img src='https://i.ibb.co/4nRfHRqz/Sistema-de-tickets-Logo-removebg-preview.png' alt='Logo'>
+                            <h2>Ticket Reactivado</h2>
+                        </div>
+                        <div class='content'>
+                            <div class='tracking-id'>ID de seguimiento: #{ticket.id_ticket}</div>
+                            <p>Hola <strong>{usuarioTecnico.nombre} {usuarioTecnico.apellido}</strong>,</p>
+                            <p>El ticket que tenías asignado ha sido <strong>reactivado</strong>. Por favor, revisa el caso y continúa con la atención.</p>
+                            <div class='ticket-detail'>
+                                <p><strong>Título:</strong> {ticket.titulo}</p>
+                                <p><strong>Descripción:</strong> {ticket.descripcion}</p>
+                                <p><strong>Prioridad:</strong> {ticket.prioridad}</p>
+                                <p><strong>Tipo:</strong> {ticket.tipo_ticket}</p>
+                                <p><strong>Estado:</strong> {ticket.estado}</p>
+                                <p><strong>Fecha de creación:</strong> {ticket.fecha_creacion:dd/MM/yyyy HH:mm}</p>
+                            </div>
+                            <p>Gracias por tu atención y compromiso.</p>
+                        </div>
+                        <div class='footer'>
+                            &copy; {DateTime.Now.Year} Sistema de Tickets - Todos los derechos reservados
+                        </div>
+                    </div>
+                </body>
+                </html>";
+                        await EnviarCorreoSimple(usuarioTecnico.correo, asunto, mensaje);
+                    }
+                }
             }
 
             return Ok(new { Message = "Ticket reactivado correctamente.", Ticket = ticket });
